@@ -8,6 +8,8 @@ use sdl2::keyboard::Keycode;
 
 pub mod cpu;
 pub mod mem;
+mod ppu;
+
 extern crate sdl2;
 
 fn main() {
@@ -18,6 +20,12 @@ fn main() {
     let mut index = 0;
     for val in bootrom.iter() {
         cpu.M.writerom(index,*val);
+        index += 1;
+    }
+
+    let rom = fs::read("tetris.gb").expect("Unable to read rom");
+    index = 0;
+    for val in rom.iter() {
         cpu.M.write(index,*val);
         index += 1;
     }
@@ -38,7 +46,7 @@ fn main() {
         .create_texture_streaming(PixelFormatEnum::RGB24,256,256).unwrap();
 
     let mut fb : [u8;256 * 256] = [0;256 * 256];
-
+    cpu.M.write(0xFF50,0);
     cpu.R.pc = 0;
     let pal : [u8;4] = [0xFF,0xAC,0x63,0x00];
 

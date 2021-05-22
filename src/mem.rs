@@ -8,6 +8,9 @@ pub struct Memory {
 
 impl Memory {
     pub fn read(&self, address: u16) -> u8 {
+        if self.map[0xFF50] == 0 && address < 256 {
+            return self.boot[address as usize];
+        }
         return self.map[address as usize];
     }
 

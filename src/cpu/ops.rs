@@ -835,7 +835,7 @@ impl Cpu {
     }
 
     fn bit(&mut self, nbit: u8, val: u8) {
-        if val & (1 << nbit) != 0 {
+        if val & (1 << nbit) == 0 {
             self.set(Z);
         } else {
             self.clr(Z);
@@ -889,17 +889,16 @@ impl Cpu {
 
     fn rl(&mut self, val: u8, r: Register, c: bool) {
         let mut cy: bool = false;
-        if c {
-            if val & 0x80 > 0 {
-                self.set(C);
-            } else {
-                self.clr(C);
-            }
-        } else {
-            if self.get(C) != 0 {
-                cy = true;
-            }
+        if self.get(C) != 0 {
+            cy = true;
         }
+
+        if val & 0x80 > 0 {
+                self.set(C);
+        } else {
+                self.clr(C);
+        }
+
         let mut v1: u8 = val << 1;
         if c {
             if self.get(C) != 0 {
@@ -1291,28 +1290,25 @@ impl Cpu {
     }
 
     fn rla(&mut self, c: bool) {
+        let cy = self.get(C);
+        if self.R.a & 0x80 > 0 {
+            self.set(C);
+        } else {
+            self.clr(C);
+        }
+        self.R.a <<= 1;
+
         if c {
-            if self.R.a & 0x80 > 0 {
-                self.set(C);
-            } else {
-                self.clr(C);
-            }
-            self.R.a <<= 1;
             if self.get(C) != 0 {
                 self.R.a += 1;
             }
         } else {
-            let cy = self.get(C);
-            if self.R.a & 0x80 > 0 {
-                self.set(C);
-            } else {
-                self.clr(C);
-            }
-            self.R.a <<= 1;
             if cy > 0 {
                 self.R.a += 1;
             }
         }
+
+
         self.clr(Z);
         self.clr(N);
         self.clr(H);
