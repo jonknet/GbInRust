@@ -1,7 +1,7 @@
 use super::mem::*;
 use crate::cpu::registers::CpuRegisters;
 use crate::cpu::stats::CpuStats;
-use std::sync::{Arc,RwLock,Mutex};
+use std::{borrow::{Borrow, BorrowMut}, sync::{Arc, Mutex, MutexGuard, RwLock}};
 use std::ops::BitAnd;
 
 pub mod ops;
@@ -32,24 +32,32 @@ pub const C:u8 = 0x10;
 pub struct Cpu {
     pub R: CpuRegisters,
     pub S: CpuStats,
-    pub M: Arc<Mutex<Memory>>
+    pub M: &'static mut Memory
 }
 
 impl Cpu {
 
-    pub fn new(m: Arc<Mutex<Memory>>)-> Cpu {
+    pub fn new(mem: &'static mut Memory)-> Cpu {
         Cpu {
             R: CpuRegisters::new(),
             S: CpuStats::new(),
-            M: m
+            M: mem,
         }
     }
 
+    pub fn grant_mutex(&mut self,mtx: Arc<Mutex<Memory>>){
+        
+    }
+
+    pub fn free_mutex(&mut self){
+        
+    }
+
     pub fn process_interrupts(&mut self){
-        let mem = self.M.clone();
-        let mut m = mem.lock().unwrap();
-        let irq = m.read(0xFF0F);
-        let ie = m.read(0xFFFF);
+        println!("test");
+        
+        let irq = self.M.read(0xFF0F);
+        let ie = self.M.read(0xFFFF);
         let mut int: Interrupts = Interrupts::NONE;
         let mut intaddr = 0;
         if irq > 0 && self.S.ime && irq & ie > 0 {
@@ -69,13 +77,12 @@ impl Cpu {
                 int = Interrupts::JOYPAD;
                 intaddr = 0x60;
             }
-            m.write(0xFFFF,ie & !(int as u8));
+            self.M.write(0xFFFF,ie & !(int as u8));
             self.push(self.R.pc);
             self.R.pc = intaddr;
             self.S.ime = false;
             
         }
-        drop(m);
     }
 
     pub fn get(&self,flag: u8)-> u8{
@@ -92,21 +99,20 @@ impl Cpu {
 
     pub fn pop(&mut self) -> u16 {
         let mut val: u16;
-        let mut lock = self.M.lock().unwrap();
+        let mut lock = self.M.borrow_mut();
         val = lock.read(self.R.sp) as u16;
         self.R.sp = self.R.sp.wrapping_add(1);
-        val |= ((self.M.lock().unwrap().read(self.R.sp) as u16) << 8) as u16;
+        val |= ((lock.read(self.R.sp) as u16) << 8) as u16;
         self.R.sp = self.R.sp.wrapping_add(1);
         return val;
     }
 
     pub fn push(&mut self,val: u16){
-        let mut lock = self.M.lock().unwrap();
+        let mut m = self.M.borrow_mut();
         self.R.sp = self.R.sp.wrapping_sub(1);
-        lock.write(self.R.sp,((val & 0xFF00) >> 8) as u8);
+        m.write(self.R.sp,((val & 0xFF00) >> 8) as u8);
         self.R.sp = self.R.sp.wrapping_sub(1);
-        lock.write(self.R.sp,(val & 0xFF) as u8);
-        drop(lock);
+        m.write(self.R.sp,(val & 0xFF) as u8);
     }
 
 }

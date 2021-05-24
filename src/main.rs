@@ -1,7 +1,7 @@
 use crate::cpu::Cpu;
 use crate::ppu::Ppu;
 use crate::mem::Memory;
-use std::fs;
+use std::{borrow::BorrowMut, fs};
 use std::path::Path;
 use std::fs::File;
 use std::sync::{Arc,RwLock,Mutex};
@@ -9,6 +9,7 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::thread;
+use std::time;
 
 pub mod cpu;
 pub mod mem;
@@ -18,77 +19,97 @@ extern crate sdl2;
 
 fn main() {
 
-    let sdl_context = sdl2::init().unwrap();
-    let video_sub = sdl_context.video().unwrap();
 
-    let window = video_sub.window("GbInRust",256,256)
-        .opengl()
-        .resizable()
-        .build()
-        .unwrap();
 
-    let mut canvas = window.into_canvas().build().unwrap();
-    let texture_creator = canvas.texture_creator();
 
-    let mut texture = texture_creator
-        .create_texture_streaming(PixelFormatEnum::RGB24,256,256).unwrap();
-
-    let mut mem = Arc::new(Mutex::new(Memory::new()));
-    let mut cpu = Cpu::new(mem.clone());
-    let mut ppu = Ppu::new(mem.clone());
-
-    let mut mlock = mem.lock().unwrap();
-    mlock.write(0xFF50,0);
-    cpu.R.pc = 0;
+    let mut mem = Memory::new();
+    
+    
+    mem.write(0xFF50,0);
+    
     let pal : [u8;4] = [0xFF,0xAC,0x63,0x00];
-    {
+    
         let bootrom = fs::read("DMG_BOOT.bin").expect("Unable to read boot rom");
 
         let mut index = 0;
         for val in bootrom.iter() {
-            mlock.writerom(index,*val);
+            mem.writerom(index,*val);
             index += 1;
         }
 
         let rom = fs::read("tetris.gb").expect("Unable to read rom");
         index = 0;
         for val in rom.iter() {
-            mlock.write(index,*val);
+            mem.write(index,*val);
             index += 1;
         }
-    }
-
-    drop(mlock);
-
-    let mut event_pump = sdl_context.event_pump().unwrap();
-
-    'running: loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
-                _ => {}
-            }
-        } 
-
-
-        thread::spawn(||{
-            cpu.executeop();
-        });
+    
+        let mut cpu = Cpu::new(mem);
+            
+            let cpu_thread = thread::spawn(move||{
+                
+                
+                cpu.R.pc = 0;
+                loop {
+                    let memmtx = Arc::new(Mutex::new(mem));
+                
+                    cpu.executeop(memmtx);
+                }
+                
+            });
+            
+            
         
+            let sdl_context = sdl2::init().unwrap();
+            
+            let video_sub = sdl_context.video().unwrap();
+        
+            let window = video_sub.window("GbInRust",256,256)
+                .opengl()
+                .resizable()
+                .build()
+                .unwrap();
 
-        ppu.render_screen_to_fb();
+            let mut ppu = Ppu::new(Arc::new(Mutex::new(mem)));
+            let mut ppumutex = Arc::new(Mutex::new(ppu));
 
+            let mut canvas = window.into_canvas().build().unwrap();
+            let texture_creator = canvas.texture_creator();
+        
+            let mut texture = texture_creator
+                .create_texture_streaming(PixelFormatEnum::RGB24,256,256).unwrap();
 
+            let ppu2 = ppumutex.clone();
+            let ppu_thread = thread::spawn(move||loop{
+                let ppulock = ppu2.lock().unwrap();    
+                //ppu2.lock().unwrap().render_screen_to_fb(); 
+                println!("PPU");
+                drop(ppulock);   
+            });
 
-       ppu.copy_fb_to_texture(&mut texture);
-
-       canvas.clear();
-       canvas.copy(&texture,None,None);
-       canvas.present();
+            let mut eventpump = sdl_context.event_pump().unwrap();
+            
+            let mut ppumutex2 = ppumutex.clone();
+            
+            'mainloop : loop {
+                for event in eventpump.poll_iter() {
+                    match event {
+                        Event::Quit { .. }
+                        | Event::KeyDown {
+                            keycode: Some(Keycode::Escape),
+                            ..
+                        } => break 'mainloop,
+                        _ => {}
+                    }
+                } 
+                let mut ppulock = ppumutex2.lock().unwrap();
+                //ppulock.copy_fb_to_texture(&mut texture);
+                canvas.clear();
+                //canvas.copy(&texture,None,None);
+                canvas.present();
+                drop(ppulock);
+            }
+            
 
 
     }
@@ -132,4 +153,4 @@ fn main() {
     }
 */
 
-}
+

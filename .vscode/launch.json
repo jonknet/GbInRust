@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'rustygb'",
+            "name": "Debug executable 'rustygb3'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=rustygb",
-                    "--package=rustygb"
+                    "--bin=rustygb3",
+                    "--package=rustygb3"
                 ],
                 "filter": {
-                    "name": "rustygb",
+                    "name": "rustygb3",
                     "kind": "bin"
                 }
             },
@@ -25,16 +25,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'rustygb'",
+            "name": "Debug unit tests in executable 'rustygb3'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=rustygb",
-                    "--package=rustygb"
+                    "--bin=rustygb3",
+                    "--package=rustygb3"
                 ],
                 "filter": {
-                    "name": "rustygb",
+                    "name": "rustygb3",
                     "kind": "bin"
                 }
             },

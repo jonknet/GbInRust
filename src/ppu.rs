@@ -48,7 +48,7 @@ pub struct Ppu {
 const pal : [u8;4] = [0xFF,0xAC,0x63,0x00];
 
 impl Ppu {
-    fn render_line(&mut self, y: u16,mlock: &MutexGuard<Memory>){
+    pub fn render_line(&mut self, y: u16,mlock: &MutexGuard<Memory>){
         let mut buffer: [u8;256] = [0;256];
         // Draw bg first
         let bgmap_addr: u16;
@@ -116,10 +116,12 @@ impl Ppu {
     }
 
     pub fn render_screen_to_fb(&mut self){
-        let mut mlock = self.ram.clone();
+        let mem = Arc::clone(&self.ram);
+        let lock = mem.lock().unwrap();
         for y in 0..=255 {
-            self.render_line(y,&mlock.lock().unwrap());
+            self.render_line(y,&lock);
         }
+        drop(lock);
     }
 
     fn read_tile_line(&self, line_address: u16) -> [u8;8] {

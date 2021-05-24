@@ -1,23 +1,21 @@
-use std::borrow::BorrowMut;
+use std::{borrow::BorrowMut, ops::Deref};
+use std::io;
 
 use crate::cpu::*;
 
 // Base functions
 
 impl Cpu {
-    pub fn executeop(&mut self) {
+    pub fn executeop(&mut self,mtx: Arc<Mutex<Memory>>) {
 
-        self.process_interrupts();
+        let mut mlock = mtx.lock().unwrap();
 
-        let mem = self.M.clone();
-
-        let mut mlock = mem.lock().unwrap();
-
-        let opcode = mlock.read(self.R.pc);
+        let opcode = self.M.read(self.R.pc);
         let arg1 = mlock.read(self.R.pc + 1);
         let arg1_i = mlock.read(self.R.pc + 1) as i8;
         let arg2 = mlock.read(self.R.pc + 2);
         let d16 = ((arg2 as u16) << 8) | arg1 as u16;
+
         println!("pc {:x} : op {:x} ({:x} {:x}) : f {:x} a {:x} b {:x} c {:x} d {:x} e {:x} h {:x} l {:x} : sp {:x} ({:x} {:x})",
                  self.R.pc,opcode,arg1,arg2,self.R.f,self.R.a,self.R.b,self.R.c,self.R.d,self.R.e,self.R.h,self.R.l,self.R.sp,mlock.read(self.R.sp),mlock.read(self.R.sp+1));
         if opcode != 0xCB {
@@ -822,7 +820,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -837,7 +835,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -867,7 +865,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -886,7 +884,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -925,7 +923,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -965,7 +963,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -988,7 +986,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -1018,7 +1016,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
+            Register::hl => self.M.write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -1231,7 +1229,7 @@ impl Cpu {
     fn inc(&mut self, reg: Register) {
         let mut v1: u8;
         if reg == Register::hl {
-            v1 = self.M.lock().unwrap().read(self.R.get_hl());
+            v1 = self.M.read(self.R.get_hl());
         } else {
             v1 = self.GetReg(reg) as u8;
         }
@@ -1239,7 +1237,7 @@ impl Cpu {
         v1 = v1.wrapping_add(1);
         self.zchk(v1 as u16);
         if reg == Register::hl {
-            self.M.lock().unwrap().write(self.R.get_hl(), v1);
+            self.M.write(self.R.get_hl(), v1);
         } else {
             self.WriteReg(reg, v1 as u16);
         }
@@ -1248,7 +1246,7 @@ impl Cpu {
     fn dec(&mut self, reg: Register) {
         let mut v1: u8;
         if reg == Register::hl {
-            v1 = self.M.lock().unwrap().read(self.R.get_hl());
+            v1 = self.M.read(self.R.get_hl());
         } else {
             v1 = self.GetReg(reg) as u8;
         }
@@ -1256,7 +1254,7 @@ impl Cpu {
         v1 = v1.wrapping_sub(1);
         self.zchk(v1 as u16);
         if reg == Register::hl {
-            self.M.lock().unwrap().write(self.R.get_hl(), v1);
+            self.M.write(self.R.get_hl(), v1);
         } else {
             self.WriteReg(reg, v1 as u16);
         }
