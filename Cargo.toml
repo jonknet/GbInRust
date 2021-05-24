@@ -1,5 +1,5 @@
 [package]
-name = "rustygb3"
+name = "rustygb"
 version = "0.1.0"
 authors = ["jonknet <jonknet@gmail.com>"]
 edition = "2018"
@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 num-traits = "0.2"
 sdl2 = "0.34"
+crossbeam-utils = "0.8"
+log = "0.4"
+lazy_static = "1.4.0"

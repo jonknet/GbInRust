@@ -32,12 +32,12 @@ pub const C:u8 = 0x10;
 pub struct Cpu {
     pub R: CpuRegisters,
     pub S: CpuStats,
-    pub M: &'static mut Memory
+    pub M: Arc<Mutex<Memory>>
 }
 
 impl Cpu {
 
-    pub fn new(mem: &'static mut Memory)-> Cpu {
+    pub fn new(mem: Arc<Mutex<Memory>>)-> Cpu {
         Cpu {
             R: CpuRegisters::new(),
             S: CpuStats::new(),
@@ -53,11 +53,10 @@ impl Cpu {
         
     }
 
-    pub fn process_interrupts(&mut self){
-        println!("test");
-        
-        let irq = self.M.read(0xFF0F);
-        let ie = self.M.read(0xFFFF);
+    pub fn process_interrupts(&mut self,mtx:&mut MutexGuard<Memory>){
+        let mut lock = mtx;
+        let irq = lock.read(0xFF0F);
+        let ie = lock.read(0xFFFF);
         let mut int: Interrupts = Interrupts::NONE;
         let mut intaddr = 0;
         if irq > 0 && self.S.ime && irq & ie > 0 {
@@ -77,8 +76,8 @@ impl Cpu {
                 int = Interrupts::JOYPAD;
                 intaddr = 0x60;
             }
-            self.M.write(0xFFFF,ie & !(int as u8));
-            self.push(self.R.pc);
+            lock.write(0xFFFF,ie & !(int as u8));
+            self.push(self.R.pc, lock);
             self.R.pc = intaddr;
             self.S.ime = false;
             
@@ -97,9 +96,9 @@ impl Cpu {
         self.R.f &= !flag;
     }
 
-    pub fn pop(&mut self) -> u16 {
+    pub fn pop(&mut self,m: &mut MutexGuard<Memory>) -> u16 {
         let mut val: u16;
-        let mut lock = self.M.borrow_mut();
+        let mut lock = m;
         val = lock.read(self.R.sp) as u16;
         self.R.sp = self.R.sp.wrapping_add(1);
         val |= ((lock.read(self.R.sp) as u16) << 8) as u16;
@@ -107,8 +106,7 @@ impl Cpu {
         return val;
     }
 
-    pub fn push(&mut self,val: u16){
-        let mut m = self.M.borrow_mut();
+    pub fn push(&mut self, val: u16, mut m: &mut MutexGuard<Memory>){
         self.R.sp = self.R.sp.wrapping_sub(1);
         m.write(self.R.sp,((val & 0xFF00) >> 8) as u8);
         self.R.sp = self.R.sp.wrapping_sub(1);
