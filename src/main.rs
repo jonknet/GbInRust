@@ -21,24 +21,20 @@ mod ppu;
 
 extern crate sdl2;
 
-lazy_static! {
-    static ref GCYCLES: Mutex<u64> = Mutex::new(0 as u64);
-}
+const pal: [u8; 4] = [0xFF, 0xAC, 0x63, 0x00];
 
 fn main() {
-    let mut mem = Memory::new();
-    let mut memmutex = Arc::new(Mutex::new(mem));
-    let mut cpu = Cpu::new(Arc::clone(&memmutex));
-    let mut ppu = Ppu::new(Arc::clone(&memmutex));
-
-    let mut memlock = memmutex.lock().unwrap();
-    memlock.write(0xFF50, 0);
 
     let GlobalCycleCount = Arc::new(AtomicU64::new(0));
-    let pal: [u8; 4] = [0xFF, 0xAC, 0x63, 0x00];
+
+    let mut mem = Arc::new(Mutex::new(Memory::new()));
+    let mut cpu = Arc::new(Mutex::new(Cpu::new()));
+    let mut ppu = Arc::new(Mutex::new(Ppu::new()));
+
+    let mut memlock = mem.lock().unwrap();
+    memlock.write(0xFF50, 0);
 
     let bootrom = fs::read("DMG_BOOT.bin").expect("Unable to read boot rom");
-
     let mut index = 0;
     for val in bootrom.iter() {
         memlock.writerom(index, *val);
@@ -52,13 +48,6 @@ fn main() {
         index += 1;
     }
     drop(memlock);
-    cpu.R.pc = 0;
-    let mut mtx1 = Arc::clone(&memmutex);
-    let cpu_thread = thread::spawn(move || {
-        loop {
-            cpu.executeop(mtx1.lock().unwrap());
-        }
-    });
 
 
     let sdl_context = sdl2::init().unwrap();
@@ -77,23 +66,28 @@ fn main() {
     let mut texture = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGB24, 256, 256).unwrap();
 
-    let mut ppuarc = Arc::new(Mutex::new(ppu));;
-    let mut ppumtx = ppuarc.clone();
-    let mut mtx2 = Arc::clone(&memmutex);
-    let ppu_thread = thread::spawn( move || {
+    let cpumtx = Arc::clone(&cpu);
+    cpumtx.lock().unwrap().R.pc = 0;
+    let mut mtx1 = Arc::clone(&mem);
+    let cpu_thread = thread::spawn(move || {
+        loop {
+            cpumtx.lock().unwrap().executeop(mtx1.lock().unwrap());
+        }
+    });
 
+    let mut ppumtx = Arc::clone(&ppu);
+    let mut mtx2 = Arc::clone(&mem);
+    let ppu_thread = thread::spawn( move || {
         loop {
             let mut ppulock = ppumtx.lock().unwrap();
             ppulock.render_screen_to_fb(mtx2.lock().unwrap());
             drop(ppulock);
-
         }
     });
 
-
-
     let mut eventpump = sdl_context.event_pump().unwrap();
-    let mut ppumtx2 = Arc::clone(&ppuarc);
+    let mut ppumtx2 = Arc::clone(&ppu);
+
     'mainloop: loop {
         for event in eventpump.poll_iter() {
             match event {
@@ -106,7 +100,8 @@ fn main() {
             }
         }
         let mut mtx = ppumtx2.lock().unwrap();
-        mtx.copy_fb_to_texture(&mut texture);
+        let mut mtxmem3 = Arc::clone(&mem);
+        mtx.copy_fb_to_texture(&mut texture,mtxmem3);
         canvas.clear();
         canvas.copy(&texture,None,None);
         canvas.present();

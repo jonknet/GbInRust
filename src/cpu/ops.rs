@@ -1,4 +1,6 @@
 use crate::cpu::*;
+use num_traits::AsPrimitive;
+use std::sync::atomic::Ordering;
 
 // Base functions
 
@@ -19,7 +21,7 @@ impl Cpu {
         if opcode != 0xCB {
             self.R.pc += OP_LEN[opcode as usize] as u16;
         }
-        self.S.cycles += 4;
+        self.T(4);
         match opcode {
             0x0 => {}
             0x1 => self.R.set_bc(d16),
@@ -698,7 +700,7 @@ impl Cpu {
     }
 
     fn T(&mut self, cycles: u32) {
-        self.S.cycles += cycles;
+        self.C.fetch_add(cycles as u64,Ordering::SeqCst);
     }
 
     pub fn cychk(&mut self, v1: u8, v2: u8) {

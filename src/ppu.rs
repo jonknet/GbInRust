@@ -4,6 +4,7 @@ use crate::mem::*;
 use std::ops::Deref;
 use std::cell::RefCell;
 use std::time::Duration;
+use std::sync::atomic::AtomicU64;
 
 enum LCDC {
     BGENABLE = 1,
@@ -43,13 +44,18 @@ pub struct Sprite {
 
 pub struct Ppu {
     sprites: Vec<Sprite>,
-    ram: Arc<Mutex<Memory>>,
-    framebuffer: [u8; 256*256]
+    framebuffer: [u8; 256*256],
+    cycles: Arc<AtomicU64>
 }
 
 const pal : [u8;4] = [0xFF,0xAC,0x63,0x00];
 
 impl Ppu {
+
+    pub fn getCycles(&self) -> Arc<AtomicU64> {
+        return self.cycles.clone();
+    }
+
     pub fn render_line(framebuffer: &mut [u8], y: u16, mlock: &mut MutexGuard<Memory>, spr: &mut Vec<Sprite>){
         let mut buffer: [u8;256] = [0;256];
         // Draw bg first
@@ -122,8 +128,8 @@ impl Ppu {
         
     }
 
-    pub fn copy_fb_to_texture(&mut self, texture: &mut Texture){
-        let lock = self.ram.lock().unwrap();
+    pub fn copy_fb_to_texture(&mut self, texture: &mut Texture, ram: Arc<Mutex<Memory>>){
+        let lock = ram.lock().unwrap();
         texture.with_lock(None, |buffer: &mut [u8], pitch: usize| { 
             for y in 0..=65535 {
             buffer[(y) * 3] = self.framebuffer[y];
@@ -141,20 +147,20 @@ impl Ppu {
         }
     }
 
-    fn read_tile_line(&self, line_address: u16) -> [u8;8] {
+    fn read_tile_line(&self, line_address: u16,mut lock: MutexGuard<Memory>) -> [u8;8] {
         let mut line : [u8; 8] = [0;8];
         for x in 0..8 {
-            line[x] = ((self.ram.deref().lock().unwrap().read(line_address + (x * 2) as u16) >> (7-x)) & 0x1) | 
-            ((self.ram.deref().lock().unwrap().read(line_address + (x * 2) as u16) >> (7-x) & 0x1) << 1);
+            line[x] = ((lock.read(line_address + (x * 2) as u16) >> (7-x)) & 0x1) |
+            ((lock.read(line_address + (x * 2) as u16) >> (7-x) & 0x1) << 1);
         }
         return line;
     }
 
-    pub fn new(mem: Arc<Mutex<Memory>>) -> Ppu {
+    pub fn new() -> Ppu {
         Ppu {
-            ram: mem,
             sprites: Vec::new(),
-            framebuffer: [0;256*256]
+            framebuffer: [0;256*256],
+            cycles: Arc::new(AtomicU64::new(0))
         }
     }
 

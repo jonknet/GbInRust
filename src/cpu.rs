@@ -3,6 +3,7 @@ use crate::cpu::registers::CpuRegisters;
 use crate::cpu::stats::CpuStats;
 use std::{borrow::{Borrow, BorrowMut}, sync::{Arc, Mutex, MutexGuard, RwLock}};
 use std::ops::BitAnd;
+use std::sync::atomic::AtomicU64;
 
 pub mod ops;
 pub mod registers;
@@ -32,25 +33,21 @@ pub const C:u8 = 0x10;
 pub struct Cpu {
     pub R: CpuRegisters,
     pub S: CpuStats,
-    pub M: Arc<Mutex<Memory>>
+    pub C: Arc<AtomicU64>
 }
 
 impl Cpu {
 
-    pub fn new(mem: Arc<Mutex<Memory>>)-> Cpu {
+    pub fn new()-> Cpu {
         Cpu {
             R: CpuRegisters::new(),
             S: CpuStats::new(),
-            M: mem,
+            C: Arc::new(AtomicU64::new(0))
         }
     }
 
-    pub fn grant_mutex(&mut self,mtx: Arc<Mutex<Memory>>){
-        
-    }
-
-    pub fn free_mutex(&mut self){
-        
+    pub fn getCycles(&self) -> Arc<AtomicU64> {
+        return self.C.clone();
     }
 
     pub fn process_interrupts(&mut self,mtx:&mut MutexGuard<Memory>){
