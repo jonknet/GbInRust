@@ -3,10 +3,12 @@ use std::sync::{RwLock, Arc};
 #[derive(Debug)]
 pub struct Memory {
     boot: [u8;256],
-    map: [u8;1024 * 64]
+    map: [u8;1024*64],
+    banks: Vec<u8>
 }
 
 impl Memory {
+
     pub fn read(&self, address: u16) -> u8 {
         if self.map[0xFF50] == 0 && address < 256 {
             return self.boot[address as usize];
@@ -35,7 +37,8 @@ impl Memory {
     pub fn new() -> Memory {
         Memory {
             boot: [0;256],
-            map: [0;1024 * 64]
+            map: [0;1024 * 64],
+            banks: Vec::new()
         }
     }
 }

@@ -1,16 +1,25 @@
+use std::borrow::BorrowMut;
+
 use crate::cpu::*;
 
 // Base functions
 
 impl Cpu {
     pub fn executeop(&mut self) {
-        let opcode = self.M.read(self.R.pc);
-        let arg1 = self.M.read(self.R.pc + 1);
-        let arg1_i = self.M.read(self.R.pc + 1) as i8;
-        let arg2 = self.M.read(self.R.pc + 2);
+
+        self.process_interrupts();
+
+        let mem = self.M.clone();
+
+        let mut mlock = mem.lock().unwrap();
+
+        let opcode = mlock.read(self.R.pc);
+        let arg1 = mlock.read(self.R.pc + 1);
+        let arg1_i = mlock.read(self.R.pc + 1) as i8;
+        let arg2 = mlock.read(self.R.pc + 2);
         let d16 = ((arg2 as u16) << 8) | arg1 as u16;
         println!("pc {:x} : op {:x} ({:x} {:x}) : f {:x} a {:x} b {:x} c {:x} d {:x} e {:x} h {:x} l {:x} : sp {:x} ({:x} {:x})",
-                 self.R.pc,opcode,arg1,arg2,self.R.f,self.R.a,self.R.b,self.R.c,self.R.d,self.R.e,self.R.h,self.R.l,self.R.sp,self.M.read(self.R.sp),self.M.read(self.R.sp+1));
+                 self.R.pc,opcode,arg1,arg2,self.R.f,self.R.a,self.R.b,self.R.c,self.R.d,self.R.e,self.R.h,self.R.l,self.R.sp,mlock.read(self.R.sp),mlock.read(self.R.sp+1));
         if opcode != 0xCB {
             self.R.pc += OP_LEN[opcode as usize] as u16;
         }
@@ -18,7 +27,7 @@ impl Cpu {
         match opcode {
             0x0 => {}
             0x1 => self.R.set_bc(d16),
-            0x2 => self.M.write(self.R.get_bc(), self.R.a),
+            0x2 => mlock.write(self.R.get_bc(), self.R.a),
             0x3 => self.R.set_bc(self.R.get_bc() + 1),
             0x4 => {
                 self.inc(Register::b);
@@ -28,9 +37,9 @@ impl Cpu {
             }
             0x6 => self.R.b = arg1,
             0x7 => self.rla(true),
-            0x8 => self.M.write16(d16, self.R.get_sp()),
+            0x8 => mlock.write16(d16, self.R.get_sp()),
             0x9 => self.add16(Register::hl, Register::bc),
-            0xA => self.R.a = self.M.read(self.R.get_bc()),
+            0xA => self.R.a = mlock.read(self.R.get_bc()),
             0xB => self.R.set_bc(self.R.get_bc() - 1),
             0xC => self.inc(Register::c),
             0xD => self.dec(Register::c),
@@ -40,7 +49,7 @@ impl Cpu {
                 self.S.halted = true;
             }
             0x11 => self.R.set_de(d16),
-            0x12 => self.M.write(self.R.get_de(), self.R.a),
+            0x12 => mlock.write(self.R.get_de(), self.R.a),
             0x13 => self.R.set_de(self.R.get_de() + 1),
             0x14 => {
                 self.inc(Register::d);
@@ -54,7 +63,7 @@ impl Cpu {
                 self.jr(true, arg1_i);
             }
             0x19 => self.add16(Register::hl, Register::de),
-            0x1A => self.R.a = self.M.read(self.R.get_de()),
+            0x1A => self.R.a = mlock.read(self.R.get_de()),
             0x1B => self.R.set_de(self.R.get_de() - 1),
             0x1C => self.inc(Register::e),
             0x1D => self.dec(Register::e),
@@ -63,7 +72,7 @@ impl Cpu {
             0x20 => self.jr(self.get(Z) == 0, arg1_i),
             0x21 => self.R.set_hl(d16),
             0x22 => {
-                self.M.write(self.R.get_hl(), self.R.a);
+                mlock.write(self.R.get_hl(), self.R.a);
                 self.R.set_hl(self.R.get_hl() + 1);
             }
             0x23 => self.R.set_hl(self.R.get_hl() + 1),
@@ -76,7 +85,7 @@ impl Cpu {
             0x28 => self.jr(self.get(Z) != 0, arg1_i),
             0x29 => self.add16(Register::hl, Register::hl),
             0x2A => {
-                self.R.a = self.M.read(self.R.get_hl());
+                self.R.a = mlock.read(self.R.get_hl());
                 self.R.set_hl(self.R.get_hl() + 1);
             }
             0x2B => self.R.set_hl(self.R.get_hl() - 1),
@@ -93,13 +102,13 @@ impl Cpu {
             }
             0x31 => self.R.set_sp(d16),
             0x32 => {
-                self.M.write(self.R.get_hl(), self.R.a);
+                mlock.write(self.R.get_hl(), self.R.a);
                 self.R.set_hl(self.R.get_hl() - 1);
             }
             0x33 => self.R.set_sp(self.R.get_sp() + 1),
             0x34 => self.inc(Register::hl),
             0x35 => self.dec(Register::hl),
-            0x36 => self.M.write(self.R.get_hl(), arg1),
+            0x36 => mlock.write(self.R.get_hl(), arg1),
             0x37 => {
                 self.set(C);
                 self.clr(N);
@@ -110,7 +119,7 @@ impl Cpu {
             }
             0x39 => self.add16(Register::hl, Register::sp),
             0x3A => {
-                self.R.a = self.M.read(self.R.get_hl());
+                self.R.a = mlock.read(self.R.get_hl());
                 self.R.set_hl(self.R.get_hl() - 1)
             }
             0x3B => self.R.set_sp(self.R.get_sp() - 1),
@@ -132,7 +141,7 @@ impl Cpu {
             0x43 => self.R.b = self.R.e,
             0x44 => self.R.b = self.R.h,
             0x45 => self.R.b = self.R.l,
-            0x46 => self.R.b = self.M.read(self.R.get_hl()),
+            0x46 => self.R.b = mlock.read(self.R.get_hl()),
             0x47 => self.R.b = self.R.a,
             0x48 => self.R.c = self.R.b,
             0x49 => self.R.c = self.R.c,
@@ -140,7 +149,7 @@ impl Cpu {
             0x4B => self.R.c = self.R.e,
             0x4C => self.R.c = self.R.h,
             0x4D => self.R.c = self.R.l,
-            0x4E => self.R.c = self.M.read(self.R.get_hl()),
+            0x4E => self.R.c = mlock.read(self.R.get_hl()),
             0x4F => self.R.c = self.R.a,
             0x50 => self.R.d = self.R.b,
             0x51 => self.R.d = self.R.c,
@@ -148,7 +157,7 @@ impl Cpu {
             0x53 => self.R.d = self.R.e,
             0x54 => self.R.d = self.R.h,
             0x55 => self.R.d = self.R.l,
-            0x56 => self.R.d = self.M.read(self.R.get_hl()),
+            0x56 => self.R.d = mlock.read(self.R.get_hl()),
             0x57 => self.R.d = self.R.a,
             0x58 => self.R.e = self.R.b,
             0x59 => self.R.e = self.R.c,
@@ -156,7 +165,7 @@ impl Cpu {
             0x5B => self.R.e = self.R.e,
             0x5C => self.R.e = self.R.h,
             0x5D => self.R.e = self.R.l,
-            0x5E => self.R.e = self.M.read(self.R.get_hl()),
+            0x5E => self.R.e = mlock.read(self.R.get_hl()),
             0x5F => self.R.e = self.R.a,
             0x60 => self.R.h = self.R.b,
             0x61 => self.R.h = self.R.c,
@@ -164,7 +173,7 @@ impl Cpu {
             0x63 => self.R.h = self.R.e,
             0x64 => self.R.h = self.R.h,
             0x65 => self.R.h = self.R.l,
-            0x66 => self.R.h = self.M.read(self.R.get_hl()),
+            0x66 => self.R.h = mlock.read(self.R.get_hl()),
             0x67 => self.R.h = self.R.a,
             0x68 => self.R.l = self.R.b,
             0x69 => self.R.l = self.R.c,
@@ -172,23 +181,23 @@ impl Cpu {
             0x6B => self.R.l = self.R.e,
             0x6C => self.R.l = self.R.h,
             0x6D => self.R.l = self.R.l,
-            0x6E => self.R.l = self.M.read(self.R.get_hl()),
+            0x6E => self.R.l = mlock.read(self.R.get_hl()),
             0x6F => self.R.l = self.R.a,
-            0x70 => self.M.write(self.R.get_hl(), self.R.b),
-            0x71 => self.M.write(self.R.get_hl(), self.R.c),
-            0x72 => self.M.write(self.R.get_hl(), self.R.d),
-            0x73 => self.M.write(self.R.get_hl(), self.R.e),
-            0x74 => self.M.write(self.R.get_hl(), self.R.h),
-            0x75 => self.M.write(self.R.get_hl(), self.R.l),
+            0x70 => mlock.write(self.R.get_hl(), self.R.b),
+            0x71 => mlock.write(self.R.get_hl(), self.R.c),
+            0x72 => mlock.write(self.R.get_hl(), self.R.d),
+            0x73 => mlock.write(self.R.get_hl(), self.R.e),
+            0x74 => mlock.write(self.R.get_hl(), self.R.h),
+            0x75 => mlock.write(self.R.get_hl(), self.R.l),
             0x76 => self.S.halted = true,
-            0x77 => self.M.write(self.R.get_hl(), self.R.a),
+            0x77 => mlock.write(self.R.get_hl(), self.R.a),
             0x78 => self.R.a = self.R.b,
             0x79 => self.R.a = self.R.c,
             0x7A => self.R.a = self.R.d,
             0x7B => self.R.a = self.R.e,
             0x7C => self.R.a = self.R.h,
             0x7D => self.R.a = self.R.l,
-            0x7E => self.R.a = self.M.read(self.R.get_hl()),
+            0x7E => self.R.a = mlock.read(self.R.get_hl()),
             0x7F => self.R.a = self.R.a,
             0x80 => self.add(self.R.b),
             0x81 => self.add(self.R.c),
@@ -196,7 +205,7 @@ impl Cpu {
             0x83 => self.add(self.R.e),
             0x84 => self.add(self.R.h),
             0x85 => self.add(self.R.l),
-            0x86 => self.add(self.M.read(self.R.get_hl())),
+            0x86 => self.add(mlock.read(self.R.get_hl())),
             0x87 => self.adc(self.R.a),
             0x88 => self.adc(self.R.b),
             0x89 => self.adc(self.R.c),
@@ -204,7 +213,7 @@ impl Cpu {
             0x8B => self.adc(self.R.e),
             0x8C => self.adc(self.R.h),
             0x8D => self.adc(self.R.l),
-            0x8E => self.adc(self.M.read(self.R.get_hl())),
+            0x8E => self.adc(mlock.read(self.R.get_hl())),
             0x8F => self.adc(self.R.a),
             0x90 => self.sub(self.R.b),
             0x91 => self.sub(self.R.c),
@@ -212,7 +221,7 @@ impl Cpu {
             0x93 => self.sub(self.R.e),
             0x94 => self.sub(self.R.h),
             0x95 => self.sub(self.R.l),
-            0x96 => self.sub(self.M.read(self.R.get_hl())),
+            0x96 => self.sub(mlock.read(self.R.get_hl())),
             0x97 => self.sub(self.R.a),
             0x98 => self.sbc(self.R.b),
             0x99 => self.sbc(self.R.c),
@@ -220,7 +229,7 @@ impl Cpu {
             0x9B => self.sbc(self.R.e),
             0x9C => self.sbc(self.R.h),
             0x9D => self.sbc(self.R.l),
-            0x9E => self.sbc(self.M.read(self.R.get_hl())),
+            0x9E => self.sbc(mlock.read(self.R.get_hl())),
             0x9F => self.sbc(self.R.a),
             0xA0 => self.and(self.R.b),
             0xA1 => self.and(self.R.c),
@@ -228,7 +237,7 @@ impl Cpu {
             0xA3 => self.and(self.R.e),
             0xA4 => self.and(self.R.h),
             0xA5 => self.and(self.R.l),
-            0xA6 => self.and(self.M.read(self.R.get_hl())),
+            0xA6 => self.and(mlock.read(self.R.get_hl())),
             0xA7 => self.and(self.R.a),
             0xA8 => self.xor(self.R.b),
             0xA9 => self.xor(self.R.c),
@@ -236,7 +245,7 @@ impl Cpu {
             0xAB => self.xor(self.R.e),
             0xAC => self.xor(self.R.h),
             0xAD => self.xor(self.R.l),
-            0xAE => self.xor(self.M.read(self.R.get_hl())),
+            0xAE => self.xor(mlock.read(self.R.get_hl())),
             0xAF => self.xor(self.R.a),
             0xB0 => self.or(self.R.b),
             0xB1 => self.or(self.R.c),
@@ -244,7 +253,7 @@ impl Cpu {
             0xB3 => self.or(self.R.e),
             0xB4 => self.or(self.R.h),
             0xB5 => self.or(self.R.l),
-            0xB6 => self.or(self.M.read(self.R.get_hl())),
+            0xB6 => self.or(mlock.read(self.R.get_hl())),
             0xB7 => self.or(self.R.a),
             0xB8 => self.cp(self.R.b),
             0xB9 => self.cp(self.R.c),
@@ -252,7 +261,7 @@ impl Cpu {
             0xBB => self.cp(self.R.e),
             0xBC => self.cp(self.R.h),
             0xBD => self.cp(self.R.l),
-            0xBE => self.cp(self.M.read(self.R.get_hl())),
+            0xBE => self.cp(mlock.read(self.R.get_hl())),
             0xBF => self.cp(self.R.a),
             0xC0 => {
                 if self.get(Z) == 0 {
@@ -295,7 +304,7 @@ impl Cpu {
                 }
             }
             0xCB => {
-                let opcode = self.M.read(self.R.pc+1);
+                let opcode = mlock.read(self.R.pc+1);
                 self.R.pc += 2;
                 match opcode {
                     0x0 => self.rl(self.R.b, Register::b, true),
@@ -304,7 +313,7 @@ impl Cpu {
                     0x3 => self.rl(self.R.e, Register::e, true),
                     0x4 => self.rl(self.R.h, Register::h, true),
                     0x5 => self.rl(self.R.l, Register::l, true),
-                    0x6 => self.rl(self.M.read(self.R.get_hl()), Register::hl, true),
+                    0x6 => self.rl(mlock.read(self.R.get_hl()), Register::hl, true),
                     0x7 => self.rr(self.R.a, Register::a, true),
                     0x8 => self.rr(self.R.b, Register::b, true),
                     0x9 => self.rr(self.R.c, Register::c, true),
@@ -312,7 +321,7 @@ impl Cpu {
                     0xB => self.rr(self.R.e, Register::e, true),
                     0xC => self.rr(self.R.h, Register::h, true),
                     0xD => self.rr(self.R.l, Register::l, true),
-                    0xE => self.rr(self.M.read(self.R.get_hl()), Register::hl, true),
+                    0xE => self.rr(mlock.read(self.R.get_hl()), Register::hl, true),
                     0xF => self.rr(self.R.a, Register::a, true),
                     0x10 => self.rl(self.R.b, Register::b, false),
                     0x11 => self.rl(self.R.c, Register::c, false),
@@ -320,7 +329,7 @@ impl Cpu {
                     0x13 => self.rl(self.R.e, Register::e, false),
                     0x14 => self.rl(self.R.h, Register::h, false),
                     0x15 => self.rl(self.R.l, Register::l, false),
-                    0x16 => self.rl(self.M.read(self.R.get_hl()), Register::hl, false),
+                    0x16 => self.rl(mlock.read(self.R.get_hl()), Register::hl, false),
                     0x17 => self.rl(self.R.a, Register::a, false),
                     0x18 => self.rr(self.R.b, Register::b, false),
                     0x19 => self.rr(self.R.c, Register::c, false),
@@ -328,7 +337,7 @@ impl Cpu {
                     0x1B => self.rr(self.R.e, Register::e, false),
                     0x1C => self.rr(self.R.h, Register::h, false),
                     0x1D => self.rr(self.R.l, Register::l, false),
-                    0x1E => self.rr(self.M.read(self.R.get_hl()), Register::hl, false),
+                    0x1E => self.rr(mlock.read(self.R.get_hl()), Register::hl, false),
                     0x1F => self.rr(self.R.a, Register::a, false),
                     0x20 => self.sla(self.R.b, Register::b),
                     0x21 => self.sla(self.R.c, Register::c),
@@ -336,7 +345,7 @@ impl Cpu {
                     0x23 => self.sla(self.R.e, Register::e),
                     0x24 => self.sla(self.R.h, Register::h),
                     0x25 => self.sla(self.R.l, Register::l),
-                    0x26 => self.sla(self.M.read(self.R.get_hl()), Register::hl),
+                    0x26 => self.sla(mlock.read(self.R.get_hl()), Register::hl),
                     0x27 => self.sra(self.R.a, Register::a),
                     0x28 => self.sra(self.R.b, Register::b),
                     0x29 => self.sra(self.R.c, Register::c),
@@ -344,7 +353,7 @@ impl Cpu {
                     0x2B => self.sra(self.R.e, Register::e),
                     0x2C => self.sra(self.R.h, Register::h),
                     0x2D => self.sra(self.R.l, Register::l),
-                    0x2E => self.sra(self.M.read(self.R.get_hl()), Register::hl),
+                    0x2E => self.sra(mlock.read(self.R.get_hl()), Register::hl),
                     0x2F => self.sra(self.R.a, Register::a),
                     0x30 => self.swap(self.R.b, Register::b),
                     0x31 => self.swap(self.R.c, Register::c),
@@ -352,7 +361,7 @@ impl Cpu {
                     0x33 => self.swap(self.R.e, Register::e),
                     0x34 => self.swap(self.R.h, Register::h),
                     0x35 => self.swap(self.R.l, Register::l),
-                    0x36 => self.swap(self.M.read(self.R.get_hl()), Register::hl),
+                    0x36 => self.swap(mlock.read(self.R.get_hl()), Register::hl),
                     0x37 => self.swap(self.R.a, Register::a),
                     0x38 => self.srl(self.R.b, Register::b),
                     0x39 => self.srl(self.R.c, Register::c),
@@ -360,7 +369,7 @@ impl Cpu {
                     0x3B => self.srl(self.R.e, Register::e),
                     0x3C => self.srl(self.R.h, Register::h),
                     0x3D => self.srl(self.R.l, Register::l),
-                    0x3E => self.srl(self.M.read(self.R.get_hl()), Register::hl),
+                    0x3E => self.srl(mlock.read(self.R.get_hl()), Register::hl),
                     0x3F => self.srl(self.R.a, Register::a),
                     0x40 => self.bit(0, self.R.b),
                     0x41 => self.bit(0, self.R.c),
@@ -368,7 +377,7 @@ impl Cpu {
                     0x43 => self.bit(0, self.R.e),
                     0x44 => self.bit(0, self.R.h),
                     0x45 => self.bit(0, self.R.l),
-                    0x46 => self.bit(0, self.M.read(self.R.get_hl())),
+                    0x46 => self.bit(0, mlock.read(self.R.get_hl())),
                     0x47 => self.bit(0, self.R.a),
                     0x48 => self.bit(1, self.R.b),
                     0x49 => self.bit(1, self.R.c),
@@ -376,7 +385,7 @@ impl Cpu {
                     0x4B => self.bit(1, self.R.e),
                     0x4C => self.bit(1, self.R.h),
                     0x4D => self.bit(1, self.R.l),
-                    0x4E => self.bit(1, self.M.read(self.R.get_hl())),
+                    0x4E => self.bit(1, mlock.read(self.R.get_hl())),
                     0x4F => self.bit(1, self.R.a),
                     0x50 => self.bit(2, self.R.b),
                     0x51 => self.bit(2, self.R.c),
@@ -384,7 +393,7 @@ impl Cpu {
                     0x53 => self.bit(2, self.R.e),
                     0x54 => self.bit(2, self.R.h),
                     0x55 => self.bit(2, self.R.l),
-                    0x56 => self.bit(2, self.M.read(self.R.get_hl())),
+                    0x56 => self.bit(2, mlock.read(self.R.get_hl())),
                     0x57 => self.bit(2, self.R.a),
                     0x58 => self.bit(3, self.R.b),
                     0x59 => self.bit(3, self.R.c),
@@ -392,7 +401,7 @@ impl Cpu {
                     0x5B => self.bit(3, self.R.e),
                     0x5C => self.bit(3, self.R.h),
                     0x5D => self.bit(3, self.R.l),
-                    0x5E => self.bit(3, self.M.read(self.R.get_hl())),
+                    0x5E => self.bit(3, mlock.read(self.R.get_hl())),
                     0x5F => self.bit(3, self.R.a),
                     0x60 => self.bit(4, self.R.b),
                     0x61 => self.bit(4, self.R.c),
@@ -400,7 +409,7 @@ impl Cpu {
                     0x63 => self.bit(4, self.R.e),
                     0x64 => self.bit(4, self.R.h),
                     0x65 => self.bit(4, self.R.l),
-                    0x66 => self.bit(4, self.M.read(self.R.get_hl())),
+                    0x66 => self.bit(4, mlock.read(self.R.get_hl())),
                     0x67 => self.bit(4, self.R.a),
                     0x68 => self.bit(5, self.R.b),
                     0x69 => self.bit(5, self.R.c),
@@ -408,7 +417,7 @@ impl Cpu {
                     0x6B => self.bit(5, self.R.e),
                     0x6C => self.bit(5, self.R.h),
                     0x6D => self.bit(5, self.R.l),
-                    0x6E => self.bit(5, self.M.read(self.R.get_hl())),
+                    0x6E => self.bit(5, mlock.read(self.R.get_hl())),
                     0x6F => self.bit(5, self.R.a),
                     0x70 => self.bit(6, self.R.b),
                     0x71 => self.bit(6, self.R.c),
@@ -416,7 +425,7 @@ impl Cpu {
                     0x73 => self.bit(6, self.R.e),
                     0x74 => self.bit(6, self.R.h),
                     0x75 => self.bit(6, self.R.l),
-                    0x76 => self.bit(6, self.M.read(self.R.get_hl())),
+                    0x76 => self.bit(6, mlock.read(self.R.get_hl())),
                     0x77 => self.bit(6, self.R.a),
                     0x78 => self.bit(7, self.R.b),
                     0x79 => self.bit(7, self.R.c),
@@ -424,7 +433,7 @@ impl Cpu {
                     0x7B => self.bit(7, self.R.e),
                     0x7C => self.bit(7, self.R.h),
                     0x7D => self.bit(7, self.R.l),
-                    0x7E => self.bit(7, self.M.read(self.R.get_hl())),
+                    0x7E => self.bit(7, mlock.read(self.R.get_hl())),
                     0x7F => self.bit(7, self.R.a),
                     0x80 => self.bitrst(0, self.R.b, Register::b),
                     0x81 => self.bitrst(0, self.R.c, Register::c),
@@ -432,7 +441,7 @@ impl Cpu {
                     0x83 => self.bitrst(0, self.R.e, Register::e),
                     0x84 => self.bitrst(0, self.R.h, Register::h),
                     0x85 => self.bitrst(0, self.R.l, Register::l),
-                    0x86 => self.bitrst(0, self.M.read(self.R.get_hl()), Register::hl),
+                    0x86 => self.bitrst(0, mlock.read(self.R.get_hl()), Register::hl),
                     0x87 => self.bitrst(0, self.R.a, Register::a),
                     0x88 => self.bitrst(1, self.R.b, Register::b),
                     0x89 => self.bitrst(1, self.R.c, Register::c),
@@ -440,7 +449,7 @@ impl Cpu {
                     0x8B => self.bitrst(1, self.R.e, Register::e),
                     0x8C => self.bitrst(1, self.R.h, Register::h),
                     0x8D => self.bitrst(1, self.R.l, Register::l),
-                    0x8E => self.bitrst(1, self.M.read(self.R.get_hl()), Register::hl),
+                    0x8E => self.bitrst(1, mlock.read(self.R.get_hl()), Register::hl),
                     0x8F => self.bitrst(1, self.R.a, Register::a),
                     0x90 => self.bitrst(2, self.R.b, Register::b),
                     0x91 => self.bitrst(2, self.R.c, Register::c),
@@ -448,7 +457,7 @@ impl Cpu {
                     0x93 => self.bitrst(2, self.R.e, Register::e),
                     0x94 => self.bitrst(2, self.R.h, Register::h),
                     0x95 => self.bitrst(2, self.R.l, Register::l),
-                    0x96 => self.bitrst(2, self.M.read(self.R.get_hl()), Register::hl),
+                    0x96 => self.bitrst(2, mlock.read(self.R.get_hl()), Register::hl),
                     0x97 => self.bitrst(2, self.R.a, Register::a),
                     0x98 => self.bitrst(3, self.R.b, Register::b),
                     0x99 => self.bitrst(3, self.R.c, Register::c),
@@ -456,7 +465,7 @@ impl Cpu {
                     0x9B => self.bitrst(3, self.R.e, Register::e),
                     0x9C => self.bitrst(3, self.R.h, Register::h),
                     0x9D => self.bitrst(3, self.R.l, Register::l),
-                    0x9E => self.bitrst(3, self.M.read(self.R.get_hl()), Register::hl),
+                    0x9E => self.bitrst(3, mlock.read(self.R.get_hl()), Register::hl),
                     0x9F => self.bitrst(3, self.R.a, Register::a),
                     0xA0 => self.bitrst(4, self.R.b, Register::b),
                     0xA1 => self.bitrst(4, self.R.c, Register::c),
@@ -464,7 +473,7 @@ impl Cpu {
                     0xA3 => self.bitrst(4, self.R.e, Register::e),
                     0xA4 => self.bitrst(4, self.R.h, Register::h),
                     0xA5 => self.bitrst(4, self.R.l, Register::l),
-                    0xA6 => self.bitrst(4, self.M.read(self.R.get_hl()), Register::hl),
+                    0xA6 => self.bitrst(4, mlock.read(self.R.get_hl()), Register::hl),
                     0xA7 => self.bitrst(4, self.R.a, Register::a),
                     0xA8 => self.bitrst(5, self.R.b, Register::b),
                     0xA9 => self.bitrst(5, self.R.c, Register::c),
@@ -472,7 +481,7 @@ impl Cpu {
                     0xAB => self.bitrst(5, self.R.e, Register::e),
                     0xAC => self.bitrst(5, self.R.h, Register::h),
                     0xAD => self.bitrst(5, self.R.l, Register::l),
-                    0xAE => self.bitrst(5, self.M.read(self.R.get_hl()), Register::hl),
+                    0xAE => self.bitrst(5, mlock.read(self.R.get_hl()), Register::hl),
                     0xAF => self.bitrst(5, self.R.a, Register::a),
                     0xB0 => self.bitrst(6, self.R.b, Register::b),
                     0xB1 => self.bitrst(6, self.R.c, Register::c),
@@ -480,7 +489,7 @@ impl Cpu {
                     0xB3 => self.bitrst(6, self.R.e, Register::e),
                     0xB4 => self.bitrst(6, self.R.h, Register::h),
                     0xB5 => self.bitrst(6, self.R.l, Register::l),
-                    0xB6 => self.bitrst(6, self.M.read(self.R.get_hl()), Register::hl),
+                    0xB6 => self.bitrst(6, mlock.read(self.R.get_hl()), Register::hl),
                     0xB7 => self.bitrst(6, self.R.a, Register::a),
                     0xB8 => self.bitrst(7, self.R.b, Register::b),
                     0xB9 => self.bitrst(7, self.R.c, Register::c),
@@ -488,7 +497,7 @@ impl Cpu {
                     0xBB => self.bitrst(7, self.R.e, Register::e),
                     0xBC => self.bitrst(7, self.R.h, Register::h),
                     0xBD => self.bitrst(7, self.R.l, Register::l),
-                    0xBE => self.bitrst(7, self.M.read(self.R.get_hl()), Register::hl),
+                    0xBE => self.bitrst(7, mlock.read(self.R.get_hl()), Register::hl),
                     0xBF => self.bitrst(7, self.R.a, Register::a),
                     0xC0 => self.bitset(0, self.R.b, Register::b),
                     0xC1 => self.bitset(0, self.R.c, Register::c),
@@ -496,7 +505,7 @@ impl Cpu {
                     0xC3 => self.bitset(0, self.R.e, Register::e),
                     0xC4 => self.bitset(0, self.R.h, Register::h),
                     0xC5 => self.bitset(0, self.R.l, Register::l),
-                    0xC6 => self.bitset(0, self.M.read(self.R.get_hl()), Register::hl),
+                    0xC6 => self.bitset(0, mlock.read(self.R.get_hl()), Register::hl),
                     0xC7 => self.bitset(0, self.R.a, Register::a),
                     0xC8 => self.bitset(1, self.R.b, Register::b),
                     0xC9 => self.bitset(1, self.R.c, Register::c),
@@ -504,7 +513,7 @@ impl Cpu {
                     0xCB => self.bitset(1, self.R.e, Register::e),
                     0xCC => self.bitset(1, self.R.h, Register::h),
                     0xCD => self.bitset(1, self.R.l, Register::l),
-                    0xCE => self.bitset(1, self.M.read(self.R.get_hl()), Register::hl),
+                    0xCE => self.bitset(1, mlock.read(self.R.get_hl()), Register::hl),
                     0xCF => self.bitset(1, self.R.a, Register::a),
                     0xD0 => self.bitset(2, self.R.b, Register::b),
                     0xD1 => self.bitset(2, self.R.c, Register::c),
@@ -512,7 +521,7 @@ impl Cpu {
                     0xD3 => self.bitset(2, self.R.e, Register::e),
                     0xD4 => self.bitset(2, self.R.h, Register::h),
                     0xD5 => self.bitset(2, self.R.l, Register::l),
-                    0xD6 => self.bitset(2, self.M.read(self.R.get_hl()), Register::hl),
+                    0xD6 => self.bitset(2, mlock.read(self.R.get_hl()), Register::hl),
                     0xD7 => self.bitset(2, self.R.a, Register::a),
                     0xD8 => self.bitset(3, self.R.b, Register::b),
                     0xD9 => self.bitset(3, self.R.c, Register::c),
@@ -520,7 +529,7 @@ impl Cpu {
                     0xDB => self.bitset(3, self.R.e, Register::e),
                     0xDC => self.bitset(3, self.R.h, Register::h),
                     0xDD => self.bitset(3, self.R.l, Register::l),
-                    0xDE => self.bitset(3, self.M.read(self.R.get_hl()), Register::hl),
+                    0xDE => self.bitset(3, mlock.read(self.R.get_hl()), Register::hl),
                     0xDF => self.bitset(3, self.R.a, Register::a),
                     0xE0 => self.bitset(4, self.R.b, Register::b),
                     0xE1 => self.bitset(4, self.R.c, Register::c),
@@ -528,7 +537,7 @@ impl Cpu {
                     0xE3 => self.bitset(4, self.R.e, Register::e),
                     0xE4 => self.bitset(4, self.R.h, Register::h),
                     0xE5 => self.bitset(4, self.R.l, Register::l),
-                    0xE6 => self.bitset(4, self.M.read(self.R.get_hl()), Register::hl),
+                    0xE6 => self.bitset(4, mlock.read(self.R.get_hl()), Register::hl),
                     0xE7 => self.bitset(4, self.R.a, Register::a),
                     0xE8 => self.bitset(5, self.R.b, Register::b),
                     0xE9 => self.bitset(5, self.R.c, Register::c),
@@ -536,7 +545,7 @@ impl Cpu {
                     0xEB => self.bitset(5, self.R.e, Register::e),
                     0xEC => self.bitset(5, self.R.h, Register::h),
                     0xED => self.bitset(5, self.R.l, Register::l),
-                    0xEE => self.bitset(5, self.M.read(self.R.get_hl()), Register::hl),
+                    0xEE => self.bitset(5, mlock.read(self.R.get_hl()), Register::hl),
                     0xEF => self.bitset(5, self.R.a, Register::a),
                     0xF0 => self.bitset(6, self.R.b, Register::b),
                     0xF1 => self.bitset(6, self.R.c, Register::c),
@@ -544,7 +553,7 @@ impl Cpu {
                     0xF3 => self.bitset(6, self.R.e, Register::e),
                     0xF4 => self.bitset(6, self.R.h, Register::h),
                     0xF5 => self.bitset(6, self.R.l, Register::l),
-                    0xF6 => self.bitset(6, self.M.read(self.R.get_hl()), Register::hl),
+                    0xF6 => self.bitset(6, mlock.read(self.R.get_hl()), Register::hl),
                     0xF7 => self.bitset(6, self.R.a, Register::a),
                     0xF8 => self.bitset(7, self.R.b, Register::b),
                     0xF9 => self.bitset(7, self.R.c, Register::c),
@@ -552,7 +561,7 @@ impl Cpu {
                     0xFB => self.bitset(7, self.R.e, Register::e),
                     0xFC => self.bitset(7, self.R.h, Register::h),
                     0xFD => self.bitset(7, self.R.l, Register::l),
-                    0xFE => self.bitset(7, self.M.read(self.R.get_hl()), Register::hl),
+                    0xFE => self.bitset(7, mlock.read(self.R.get_hl()), Register::hl),
                     0xFF => self.bitset(7, self.R.a, Register::a),
                 }
             }
@@ -625,12 +634,12 @@ impl Cpu {
                 self.push(self.R.pc);
                 self.R.pc = 0x18;
             }
-            0xE0 => self.M.write((arg1 as u16) | 0xFF00, self.R.a),
+            0xE0 => mlock.write((arg1 as u16) | 0xFF00, self.R.a),
             0xE1 => {
                 let v1 = self.pop();
                 self.R.set_hl(v1)
             }
-            0xE2 => self.M.write(self.R.c as u16 | 0xFF00, self.R.a),
+            0xE2 => mlock.write(self.R.c as u16 | 0xFF00, self.R.a),
             0xE5 => self.push(self.R.get_hl()),
             0xE6 => self.and(arg1),
             0xE7 => {
@@ -650,18 +659,18 @@ impl Cpu {
                 self.clr(N);
             }
             0xE9 => self.R.pc = self.R.get_hl(),
-            0xEA => self.M.write(d16, self.R.a),
+            0xEA => mlock.write(d16, self.R.a),
             0xEE => self.xor(arg1),
             0xEF => {
                 self.push(self.R.pc);
                 self.R.pc = 0x28;
             }
-            0xF0 => self.R.a = self.M.read(arg1 as u16 + 0xFF00),
+            0xF0 => self.R.a = mlock.read(arg1 as u16 + 0xFF00),
             0xF1 => {
                 let v1 = self.pop();
                 self.R.set_af(v1)
             }
-            0xF2 => self.R.a = self.M.read(self.R.c as u16 | 0xFF00),
+            0xF2 => self.R.a = mlock.read(self.R.c as u16 | 0xFF00),
             0xF3 => self.S.ime = false,
             0xF5 => self.push(self.R.get_af()),
             0xF6 => self.or(arg1),
@@ -681,7 +690,7 @@ impl Cpu {
                 self.clr(N);
             }
             0xF9 => self.R.sp = self.R.get_hl(),
-            0xFA => self.R.a = self.M.read(d16),
+            0xFA => self.R.a = mlock.read(d16),
             0xFB => self.S.ime = true,
             0xFE => self.cp(arg1),
             0xFF => {
@@ -813,7 +822,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -828,7 +837,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -858,7 +867,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -877,7 +886,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -916,7 +925,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -956,7 +965,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -979,7 +988,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -1009,7 +1018,7 @@ impl Cpu {
             Register::e => self.R.e = v1,
             Register::h => self.R.h = v1,
             Register::l => self.R.l = v1,
-            Register::hl => self.M.write(self.R.get_hl(), v1),
+            Register::hl => self.M.lock().unwrap().write(self.R.get_hl(), v1),
             Register::a => self.R.b = v1,
             _ => {}
         }
@@ -1222,7 +1231,7 @@ impl Cpu {
     fn inc(&mut self, reg: Register) {
         let mut v1: u8;
         if reg == Register::hl {
-            v1 = self.M.read(self.R.get_hl());
+            v1 = self.M.lock().unwrap().read(self.R.get_hl());
         } else {
             v1 = self.GetReg(reg) as u8;
         }
@@ -1230,7 +1239,7 @@ impl Cpu {
         v1 = v1.wrapping_add(1);
         self.zchk(v1 as u16);
         if reg == Register::hl {
-            self.M.write(self.R.get_hl(), v1);
+            self.M.lock().unwrap().write(self.R.get_hl(), v1);
         } else {
             self.WriteReg(reg, v1 as u16);
         }
@@ -1239,7 +1248,7 @@ impl Cpu {
     fn dec(&mut self, reg: Register) {
         let mut v1: u8;
         if reg == Register::hl {
-            v1 = self.M.read(self.R.get_hl());
+            v1 = self.M.lock().unwrap().read(self.R.get_hl());
         } else {
             v1 = self.GetReg(reg) as u8;
         }
@@ -1247,7 +1256,7 @@ impl Cpu {
         v1 = v1.wrapping_sub(1);
         self.zchk(v1 as u16);
         if reg == Register::hl {
-            self.M.write(self.R.get_hl(), v1);
+            self.M.lock().unwrap().write(self.R.get_hl(), v1);
         } else {
             self.WriteReg(reg, v1 as u16);
         }
@@ -1315,28 +1324,26 @@ impl Cpu {
     }
 
     fn rra(&mut self, c: bool) {
+        let cy = self.get(C);
+
+        if self.R.a & 0x1 > 0 {
+            self.set(C);
+        } else {
+            self.clr(C);
+        }
+
+        self.R.a >>= 1;
+
         if c {
-            if self.R.a & 0x1 > 0 {
-                self.set(C);
-            } else {
-                self.clr(C);
-            }
-            self.R.a >>= 1;
             if self.get(C) != 0 {
                 self.R.a |= 0x80;
             }
         } else {
-            let cy = self.get(C);
-            if self.R.a & 0x1 > 0 {
-                self.set(C);
-            } else {
-                self.clr(C);
-            }
-            self.R.a >>= 1;
             if cy > 0 {
                 self.R.a |= 0x80;
             }
         }
+
         self.clr(Z);
         self.clr(N);
         self.clr(H);

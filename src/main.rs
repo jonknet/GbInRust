@@ -1,10 +1,14 @@
 use crate::cpu::Cpu;
+use crate::ppu::Ppu;
+use crate::mem::Memory;
 use std::fs;
 use std::path::Path;
 use std::fs::File;
+use std::sync::{Arc,RwLock,Mutex};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use std::thread;
 
 pub mod cpu;
 pub mod mem;
@@ -13,22 +17,6 @@ mod ppu;
 extern crate sdl2;
 
 fn main() {
-    let mut cpu = Cpu::new();
-
-    let bootrom = fs::read("DMG_BOOT.bin").expect("Unable to read boot rom");
-
-    let mut index = 0;
-    for val in bootrom.iter() {
-        cpu.M.writerom(index,*val);
-        index += 1;
-    }
-
-    let rom = fs::read("tetris.gb").expect("Unable to read rom");
-    index = 0;
-    for val in rom.iter() {
-        cpu.M.write(index,*val);
-        index += 1;
-    }
 
     let sdl_context = sdl2::init().unwrap();
     let video_sub = sdl_context.video().unwrap();
@@ -45,13 +33,66 @@ fn main() {
     let mut texture = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGB24,256,256).unwrap();
 
-    let mut fb : [u8;256 * 256] = [0;256 * 256];
-    cpu.M.write(0xFF50,0);
+    let mut mem = Arc::new(Mutex::new(Memory::new()));
+    let mut cpu = Cpu::new(mem.clone());
+    let mut ppu = Ppu::new(mem.clone());
+
+    let mut mlock = mem.lock().unwrap();
+    mlock.write(0xFF50,0);
     cpu.R.pc = 0;
     let pal : [u8;4] = [0xFF,0xAC,0x63,0x00];
+    {
+        let bootrom = fs::read("DMG_BOOT.bin").expect("Unable to read boot rom");
+
+        let mut index = 0;
+        for val in bootrom.iter() {
+            mlock.writerom(index,*val);
+            index += 1;
+        }
+
+        let rom = fs::read("tetris.gb").expect("Unable to read rom");
+        index = 0;
+        for val in rom.iter() {
+            mlock.write(index,*val);
+            index += 1;
+        }
+    }
+
+    drop(mlock);
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
+                _ => {}
+            }
+        } 
+
+
+        thread::spawn(||{
+            cpu.executeop();
+        });
+        
+
+        ppu.render_screen_to_fb();
+
+
+
+       ppu.copy_fb_to_texture(&mut texture);
+
+       canvas.clear();
+       canvas.copy(&texture,None,None);
+       canvas.present();
+
+
+    }
+/*
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -89,6 +130,6 @@ fn main() {
 
         cpu.executeop();
     }
-
+*/
 
 }
