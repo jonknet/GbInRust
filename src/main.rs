@@ -12,8 +12,13 @@ use std::thread;
 use std::time;
 use std::cell::RefCell;
 use lazy_static::lazy_static;
-use std::ops::Deref;
+use std::ops::{Deref, AddAssign};
 use std::sync::atomic::{AtomicU64,Ordering};
+use std::time::Duration;
+use std::thread::{JoinHandle, Thread};
+use std::error::Error;
+use std::convert::{TryInto, Infallible};
+use crossbeam::atomic::AtomicCell;
 
 pub mod cpu;
 pub mod mem;
@@ -21,17 +26,22 @@ mod ppu;
 
 extern crate sdl2;
 
+lazy_static!(
+    static ref cpu_resume: AtomicCell<bool> = AtomicCell::new(false);
+);
+
 const pal: [u8; 4] = [0xFF, 0xAC, 0x63, 0x00];
 
 fn main() {
 
-    let GlobalCycleCount = Arc::new(AtomicU64::new(0));
+    let mut globalCycles = Arc::new(Mutex::new(0));
 
-    let mut mem = Arc::new(Mutex::new(Memory::new()));
+    let mut mem = Arc::new(Mutex::new(Memory::new(0)));
     let mut cpu = Arc::new(Mutex::new(Cpu::new()));
     let mut ppu = Arc::new(Mutex::new(Ppu::new()));
 
-    let mut memlock = mem.lock().unwrap();
+    let mut memmtx = Arc::clone(&mem);
+    let mut memlock = memmtx.lock().unwrap();
     memlock.write(0xFF50, 0);
 
     let bootrom = fs::read("DMG_BOOT.bin").expect("Unable to read boot rom");
@@ -66,24 +76,67 @@ fn main() {
     let mut texture = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGB24, 256, 256).unwrap();
 
-    let cpumtx = Arc::clone(&cpu);
-    cpumtx.lock().unwrap().R.pc = 0;
-    let mut mtx1 = Arc::clone(&mem);
-    let cpu_thread = thread::spawn(move || {
-        loop {
-            cpumtx.lock().unwrap().executeop(mtx1.lock().unwrap());
-        }
-    });
+
+
+
 
     let mut ppumtx = Arc::clone(&ppu);
     let mut mtx2 = Arc::clone(&mem);
+    let mut gc1 = Arc::clone(&globalCycles);
+    let mut cpu_thread: Box<Option<JoinHandle<_>>> = Box::new(None);
     let ppu_thread = thread::spawn( move || {
         loop {
-            let mut ppulock = ppumtx.lock().unwrap();
-            ppulock.render_screen_to_fb(mtx2.lock().unwrap());
-            drop(ppulock);
+            static ppumtx2: Arc<Mutex<Ppu>> = ppumtx2.into();
+            let mut gc2 = gc1.try_lock().unwrap();
+            let mut mtx3 = mtx2.try_lock();
+            for i in 0..255 {
+                {
+
+
+                        ppumtx2.lock().unwrap().render_line(i, &mut mtx3.as_ref().unwrap());
+
+                    gc2.add_assign(70);
+
+                }
+
+            }
+            drop(gc2);
+            drop(mtx3);
+
+
+                cpu_resume.store(true);
+                thread::park();
+
+
+        }});
+
+    let cpumtx = Arc::clone(&cpu);
+    let mut mtx1 = Arc::clone(&mem);
+    cpu_thread = Box::from(Some((thread::spawn(move || {
+        let mut cpumtx1 = cpumtx.lock().unwrap();
+        let mut start = time::Instant::now();
+
+        cpumtx1.R.pc = 0;
+        loop {
+            {
+                let mut mtx4 = mtx1.try_lock();
+                if mtx4.is_ok() {
+                    cpumtx1.executeop(&mut mtx4.unwrap());
+                }
+            }
+
+            if time::Instant::now().duration_since(start) >= Duration::from_micros(150) {
+                start = time::Instant::now();
+                ppu_thread.thread().unpark();
+                while(!cpu_resume.load()){
+                    // Do nothing
+                }
+            }
         }
-    });
+    }))));
+
+    cpu_thread.unwrap().thread().unpark();
+
 
     let mut eventpump = sdl_context.event_pump().unwrap();
     let mut ppumtx2 = Arc::clone(&ppu);
@@ -99,12 +152,19 @@ fn main() {
                 _ => {}
             }
         }
-        let mut mtx = ppumtx2.lock().unwrap();
-        let mut mtxmem3 = Arc::clone(&mem);
-        mtx.copy_fb_to_texture(&mut texture,mtxmem3);
+        {
+            let mut mtx = ppumtx2.try_lock();
+            if mtx.is_ok() {
+                mtx.unwrap().copy_fb_to_texture(&mut texture);
+            }
+        }
+
         canvas.clear();
         canvas.copy(&texture,None,None);
         canvas.present();
+
+
+
     }
 }
 /*

@@ -4,7 +4,7 @@ use crate::mem::*;
 use std::ops::Deref;
 use std::cell::RefCell;
 use std::time::Duration;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 enum LCDC {
     BGENABLE = 1,
@@ -56,7 +56,7 @@ impl Ppu {
         return self.cycles.clone();
     }
 
-    pub fn render_line(framebuffer: &mut [u8], y: u16, mlock: &mut MutexGuard<Memory>, spr: &mut Vec<Sprite>){
+    pub fn render_line(&mut self, y: u16, mlock: &mut MutexGuard<Memory>){
         let mut buffer: [u8;256] = [0;256];
         // Draw bg first
         let bgmap_addr: u16;
@@ -75,16 +75,16 @@ impl Ppu {
         let scx = mlock.read(0xFF43);
         let bgidx = (y / 8) * 32;
         let yadd = y % 8;
-        Ppu::find_intersect_sprites(y,mlock,spr);
+        Ppu::find_intersect_sprites(y,mlock,&mut self.sprites);
         for x in 0..32 {
             let i = bgmap_addr + bgidx as u16 + x;
             let bgtileindex = mlock.read(i);
             for p in 0..8 {
-                framebuffer[((y * 256) + (x * 8) + p) as usize] = pal[(((mlock.read(bgdata + (bgtileindex * 16) as u16 + p as u16 + (yadd*2) as u16) >> (7-p)) & 0x1) |
+                self.framebuffer[((y * 256) + (x * 8) + p) as usize] = pal[(((mlock.read(bgdata + (bgtileindex * 16) as u16 + p as u16 + (yadd*2) as u16) >> (7-p)) & 0x1) |
                                                 ((mlock.read(bgdata + (bgtileindex * 16) as u16 + p as u16 + 1 + (yadd*2) as u16) >> (7-p) & 0x1) << 1)) as usize];
             }
         }
-        for s in spr.iter() {
+        for s in self.sprites.iter() {
             let tiledata = 0x8000;
             let sy = (s.y as u16 - y) * 2;
             let sx: i16 = (s.x as i16 - 8);
@@ -93,27 +93,32 @@ impl Ppu {
                 i = sx.abs();
             }
             for mut x in i..8 {
-                framebuffer[((y*256)+sx as u16 +x as u16) as usize] = pal[((((mlock.read(tiledata + (s.index * 16) as u16) as u16 + sy) >> (7-x)) & 0x1) |
-                    (((mlock.read(tiledata + (s.index * 16) as u16) as u16 + sy + 1) >> (7-x)) & 0x1) << 1) as usize]
+                self.framebuffer[((y*256)+sx as u16 +x as u16) as usize] = pal[((((mlock.read(tiledata + (s.index * 16) as u16) as u16 + sy) >> (7-x)) & 0x1) |
+                    (((mlock.read(tiledata + (s.index * 16) as u16) as u16 + sy + 1) >> (7-x)) & 0x1) << 1) as usize];
+                println!("{} ",self.framebuffer[((y*256)+sx as u16 +x as u16) as usize]);
             }
 
         }
+        println!("draw {}",mlock.read(0xFF44));
         let ly = mlock.read(0xFF44);
-        if mlock.read(0xFF44) == 153 {
+        if ly >= 153 {
             mlock.write(0xFF44,0);
         } else {
             mlock.write(0xFF44, ly.wrapping_add(1));
         }
+
     }
 
-    fn find_intersect_sprites(y: u16, lock: &MutexGuard<Memory>, sprtbl: &mut Vec<Sprite>){
+    fn find_intersect_sprites(y: u16, lock: &mut MutexGuard<Memory>, sprtbl: &mut Vec<Sprite>){
         sprtbl.clear();
         let baseaddr = 0xFE00;
         for sprindex in 0..40 {
+
             let ypos = lock.read(baseaddr + (sprindex * 4));
             let xpos = lock.read(baseaddr + (sprindex * 4) + 1);
             let idx = lock.read(baseaddr + (sprindex * 4) + 2);
             let attr = lock.read(baseaddr + (sprindex * 4) + 3);
+            //println!("{} {} {} {}",ypos,xpos,idx,attr);
             if y >= (ypos.wrapping_sub(8)) as u16 && y <= (ypos as u16) { // not sure about this
                 sprtbl.push(Sprite { y: ypos, x: xpos, index: idx as i16, attrib: attr });
                 println!("Found sprite! {:?}",idx);
@@ -128,8 +133,8 @@ impl Ppu {
         
     }
 
-    pub fn copy_fb_to_texture(&mut self, texture: &mut Texture, ram: Arc<Mutex<Memory>>){
-        let lock = ram.lock().unwrap();
+    pub fn copy_fb_to_texture(&mut self, texture: &mut Texture){
+
         texture.with_lock(None, |buffer: &mut [u8], pitch: usize| { 
             for y in 0..=65535 {
             buffer[(y) * 3] = self.framebuffer[y];
@@ -137,13 +142,12 @@ impl Ppu {
             buffer[y * 3 + 2] = self.framebuffer[y];
             }
         });
-        drop(lock);
+
     }
 
     pub fn render_screen_to_fb(&mut self, mut lock: MutexGuard<Memory>){ ;
         for y in 0..=255 {
-            Ppu::render_line(&mut self.framebuffer, y, &mut lock, &mut self.sprites);
-            thread::yield_now();
+            self.render_line(y,&mut lock);
         }
     }
 

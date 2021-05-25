@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 // Base functions
 
 impl Cpu {
-    pub fn executeop(&mut self, mut mtx: MutexGuard<Memory>) {
+    pub fn executeop(&mut self, mut mtx: &mut MutexGuard<Memory>) {
 
         self.process_interrupts(&mut mtx);
 
@@ -1151,7 +1151,7 @@ impl Cpu {
     fn add(&mut self, val: u8) {
         self.cychk(self.R.a, val);
         self.hcychk(self.R.a, val);
-        self.R.a += val;
+        self.R.a = self.R.a.wrapping_add(val);
         self.zchk(self.R.a as u16);
         self.clr(N);
     }
